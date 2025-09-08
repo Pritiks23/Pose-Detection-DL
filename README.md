@@ -1,7 +1,8 @@
 # # AI Image Analyzer
 
 A client-side deep learning web application that analyzes images and displays top object predictions using MobileNet. Fully runs in the browser and can be hosted on GitHub Pages.
-![Uploading Screen Shot 2025-09-07 at 8.28.33 PM.png…]()
+
+<img width="919" height="464" alt="Screen Shot 2025-09-07 at 8 29 16 PM" src="https://github.com/user-attachments/assets/00188bcd-5ed7-44c1-9690-32c11fa63ef7" />
 
 ---
 
