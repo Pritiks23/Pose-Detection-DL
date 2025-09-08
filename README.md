@@ -16,7 +16,7 @@ A client-side deep learning web application that analyzes images and displays to
 
 ## Demo
 
-You can host this project on GitHub Pages by pushing the repository and enabling Pages in your repo settings. The application will be accessible via:
+
 
 ## Technologies Used
 
