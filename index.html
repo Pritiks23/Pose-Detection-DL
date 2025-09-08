@@ -2,52 +2,113 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Deep Learning Image Intelligence</title>
+  <title>AI Image Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+
     body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background: #f4f4f4;
       margin: 0;
-      padding: 2rem;
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(to bottom, #0f1724, #1e293b);
+      color: #e6eef6;
+      min-height: 100vh;
     }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+      text-align: center;
+    }
+
     h1 {
-      color: #222;
-      margin-bottom: 1rem;
+      font-size: 2rem;
+      color: #facc15;
+      margin-bottom: 0.2rem;
     }
+
+    h2 {
+      font-size: 1.2rem;
+      color: #e2e8f0;
+      margin-bottom: 2rem;
+    }
+
     .upload-box {
-      background: white;
+      background: rgba(255, 255, 255, 0.05);
       padding: 2rem;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      display: inline-block;
+      border-radius: 16px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
     }
+
+    input[type="file"] {
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      background-color: #2563eb;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    input[type="file"]:hover {
+      background-color: #1e40af;
+    }
+
     #preview {
-      max-width: 400px;
-      margin-top: 1rem;
-      border-radius: 8px;
-    }
-    #results {
       margin-top: 1.5rem;
-      font-size: 1.1rem;
+      max-width: 100%;
+      border-radius: 12px;
+      border: 2px solid #facc15;
     }
+
+    #results {
+      margin-top: 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+    }
+
     .prediction {
-      margin: 0.5rem 0;
-      padding: 0.5rem;
-      background: #e9f5ff;
-      border-radius: 6px;
+      background: rgba(255,255,255,0.1);
+      padding: 0.6rem 1rem;
+      border-radius: 12px;
+      font-weight: 600;
+      color: #fbbf24;
+      min-width: 120px;
+      text-align: center;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .prediction:hover {
+      transform: scale(1.05);
+      background: rgba(255,255,255,0.2);
+    }
+
+    footer {
+      margin-top: 3rem;
+      font-size: 0.85rem;
+      color: #94a3b8;
     }
   </style>
 </head>
 <body>
-  <h1>Deep Learning Image Intelligence</h1>
-  <div class="upload-box">
-    <input type="file" id="imageUpload" accept="image/*">
-    <br>
-    <img id="preview" src="" alt="Preview will appear here">
-    <div id="results"></div>
+  <div class="container">
+    <h1>AI Image Analyzer</h1>
+    <h2>Upload any image to see top object predictions using MobileNet</h2>
+
+    <div class="upload-box">
+      <input type="file" id="imageUpload" accept="image/*"><br>
+      <img id="preview" src="" alt="Preview will appear here"><br>
+      <div id="results"></div>
+    </div>
+
+    <footer>
+      Powered by TensorFlow.js — Client-side deep learning. Note: model is lightweight, so predictions may not always be precise.
+    </footer>
   </div>
 
   <script>
@@ -55,13 +116,14 @@
 
     async function loadModel() {
       mobilenetModel = await mobilenet.load();
-      console.log("✅ MobileNet model loaded");
+      console.log("MobileNet model loaded ✅");
     }
 
     function showPreview(file) {
       const reader = new FileReader();
       reader.onload = e => {
         document.getElementById("preview").src = e.target.result;
+        document.getElementById("results").innerHTML = "";
       };
       reader.readAsDataURL(file);
     }
@@ -72,12 +134,12 @@
 
       const predictions = await mobilenetModel.classify(img);
       const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = "<h3>Predictions:</h3>";
+      resultsDiv.innerHTML = "";
 
       predictions.forEach(p => {
         const div = document.createElement("div");
         div.className = "prediction";
-        div.textContent = `${p.className} (${(p.probability*100).toFixed(2)}%)`;
+        div.textContent = `${p.className} (${(p.probability*100).toFixed(1)}%)`;
         resultsDiv.appendChild(div);
       });
     }
@@ -86,7 +148,7 @@
       const file = event.target.files[0];
       if (file) {
         showPreview(file);
-        setTimeout(analyzeImage, 500); // slight delay to ensure image loads
+        setTimeout(analyzeImage, 500); // ensure image is loaded
       }
     });
 
@@ -94,5 +156,6 @@
   </script>
 </body>
 </html>
+
 
 
