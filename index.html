@@ -1,241 +1,98 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>StageSense — Smart Dance Assistant</title>
+  <meta charset="UTF-8">
+  <title>Deep Learning Image Intelligence</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
   <style>
-    :root{
-      --bg:#0f1724; --card:#0b1220; --accent:#f59e0b; --muted:#9aa4b2;
-      --glass: rgba(255,255,255,0.04);
-      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 2rem;
     }
-    body{margin:0;background:linear-gradient(180deg,#071023 0%, #07182b 100%);color:#e6eef6}
-    .wrap{max-width:1100px;margin:28px auto;padding:20px}
-    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
-    h1{margin:0;font-size:20px}
-    .controls{display:flex;gap:8px;flex-wrap:wrap}
-    button{background:var(--accent);border:none;color:#06111a;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
-    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
-    .card{background:var(--card);border-radius:14px;padding:14px;margin-top:12px;box-shadow:0 6px 30px rgba(4,6,15,0.6)}
-    #videoPanel{display:grid;grid-template-columns:640px 1fr;gap:12px;align-items:start}
-    video, canvas, img{width:100%;border-radius:10px}
-    #outputText{white-space:pre-wrap;font-family:inherit;color:#eaf3ff}
-    .small{font-size:13px;color:var(--muted)}
-    .badge{display:inline-block;padding:6px 8px;border-radius:8px;background:var(--glass);margin-right:6px}
-    footer{margin-top:18px;font-size:13px;color:var(--muted)}
+    h1 {
+      color: #222;
+      margin-bottom: 1rem;
+    }
+    .upload-box {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: inline-block;
+    }
+    #preview {
+      max-width: 400px;
+      margin-top: 1rem;
+      border-radius: 8px;
+    }
+    #results {
+      margin-top: 1.5rem;
+      font-size: 1.1rem;
+    }
+    .prediction {
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      background: #e9f5ff;
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <h1>StageSense — Smart Dance Assistant (runs in browser)</h1>
-        <div class="small">Pose detection + image captioning & VQA — no server. Host on GitHub Pages.</div>
-      </div>
-      <div style="margin-left:auto" class="controls">
-        <button id="startCam">Start Camera</button>
-        <button id="stopCam" class="ghost" disabled>Stop</button>
-        <button id="snap" class="ghost" disabled>Save Highlight</button>
-        <button id="downloadSummary" class="ghost">Download Summary</button>
-      </div>
-    </header>
-
-    <div class="card" id="mainCard">
-      <div id="videoPanel">
-        <div>
-          <video id="video" playsinline autoplay muted></video>
-          <canvas id="overlay" width="640" height="480" style="position:relative; margin-top:8px;"></canvas>
-        </div>
-
-        <div>
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <div class="badge">Model: <span id="modelName">MoveNet</span></div>
-              <div class="badge">Caption model: <span id="captionModel">BLIP (browser)</span></div>
-            </div>
-            <div class="small">FPS: <span id="fps">0</span></div>
-          </div>
-
-          <div class="card" style="margin-top:12px">
-            <div class="small">Live caption (best per-frame):</div>
-            <div id="outputText" style="min-height:80px">—</div>
-          </div>
-
-          <div class="card" style="margin-top:12px">
-            <div class="small">Ask a question about the current frame (VQA):</div>
-            <input id="vqaInput" placeholder="e.g. What is the dancer doing?" style="width:100%;padding:10px;margin-top:8px;border-radius:8px;border:none;background:#031020;color:#dff" />
-            <div style="display:flex;gap:8px;margin-top:8px">
-              <button id="askBtn" class="ghost">Ask</button>
-              <button id="clearBtn" class="ghost">Clear</button>
-            </div>
-            <div style="margin-top:8px;color:var(--muted)" id="vqaAnswer">—</div>
-          </div>
-
-          <div class="card" style="margin-top:12px">
-            <div class="small">Highlights (saved frames):</div>
-            <div id="highlights" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
-          </div>
-
-        </div>
-      </div>
-    </div>
-
-    <footer>
-      Tips: If models are slow, use Chrome/Edge with WebGL/WebGPU enabled. Models load from CDN; first visit downloads weights to browser cache.
-    </footer>
+  <h1>Deep Learning Image Intelligence</h1>
+  <div class="upload-box">
+    <input type="file" id="imageUpload" accept="image/*">
+    <br>
+    <img id="preview" src="" alt="Preview will appear here">
+    <div id="results"></div>
   </div>
 
-  <!-- ✅ Correct TensorFlow.js imports -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@0.0.7/dist/pose-detection.js"></script>
+  <script>
+    let mobilenetModel;
 
-  <!-- Transformers.js (for image captioning) -->
-  <script type="module">
-  import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js';
-
-  const video = document.getElementById('video');
-  const overlay = document.getElementById('overlay');
-  const ctx = overlay.getContext('2d');
-  const startCam = document.getElementById('startCam');
-  const stopCam = document.getElementById('stopCam');
-  const snap = document.getElementById('snap');
-  const outputText = document.getElementById('outputText');
-  const vqaInput = document.getElementById('vqaInput');
-  const askBtn = document.getElementById('askBtn');
-  const vqaAnswer = document.getElementById('vqaAnswer');
-  const fpsEl = document.getElementById('fps');
-  const highlights = document.getElementById('highlights');
-  const downloadSummary = document.getElementById('downloadSummary');
-
-  let detector = null;
-  let captioner = null;
-  let rafId = null;
-  let stream = null;
-  let lastCaption = '';
-  let lastFrameBlob = null;
-  let lastTime = performance.now();
-  let frameCount = 0;
-
-  async function initCaptioner(){
-    outputText.innerText = 'Loading caption model...';
-    try{
-      captioner = await pipeline('image-to-text', 'Xenova/blip-image-captioning-base');
-      outputText.innerText = 'Caption model loaded.';
-    }catch(e){
-      console.warn('Captioner failed', e);
-      outputText.innerText = 'Caption model failed.';
+    async function loadModel() {
+      mobilenetModel = await mobilenet.load();
+      console.log("✅ MobileNet model loaded");
     }
-  }
 
-  async function initPose(){
-    const posedetection = window.poseDetection;
-    try{
-      detector = await posedetection.createDetector(posedetection.SupportedModels.MoveNet, {
-        modelType: posedetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+    function showPreview(file) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        document.getElementById("preview").src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function analyzeImage() {
+      const img = document.getElementById("preview");
+      if (!img.src) return;
+
+      const predictions = await mobilenetModel.classify(img);
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "<h3>Predictions:</h3>";
+
+      predictions.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "prediction";
+        div.textContent = `${p.className} (${(p.probability*100).toFixed(2)}%)`;
+        resultsDiv.appendChild(div);
       });
-      document.getElementById('modelName').innerText = 'MoveNet';
-    }catch(e){
-      console.warn('MoveNet failed, falling back to PoseNet', e);
-      detector = await posedetection.createDetector(posedetection.SupportedModels.PoseNet);
-      document.getElementById('modelName').innerText = 'PoseNet';
     }
-  }
 
-  startCam.onclick = async () => {
-    startCam.disabled = true;
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}, audio:false});
-      video.srcObject = stream;
-      await video.play();
-      stopCam.disabled = false;
-      snap.disabled = false;
-      await Promise.all([initPose(), initCaptioner()]);
-      runLoop();
-    }catch(err){
-      alert('Camera error: '+err.message);
-      startCam.disabled = false;
-    }
-  };
+    document.getElementById("imageUpload").addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        showPreview(file);
+        setTimeout(analyzeImage, 500); // slight delay to ensure image loads
+      }
+    });
 
-  stopCam.onclick = () => {
-    if(stream){ stream.getTracks().forEach(t=>t.stop()); }
-    cancelAnimationFrame(rafId);
-    startCam.disabled = false; stopCam.disabled = true; snap.disabled = true;
-    outputText.innerText = 'Stopped';
-  };
-
-  function drawKeypoints(keypoints){
-    ctx.clearRect(0,0,overlay.width,overlay.height);
-    ctx.lineWidth = 2; ctx.strokeStyle = '#00ffcc'; ctx.fillStyle = '#00ffcc';
-    for(const kp of keypoints){ if(kp.score>0.35){ ctx.beginPath(); ctx.arc(kp.x,kp.y,4,0,Math.PI*2); ctx.fill(); } }
-  }
-
-  async function processFrame(){
-    const start = performance.now();
-    let poses = [];
-    try{ poses = await detector.estimatePoses(video); }catch{}
-    if(poses && poses[0]) drawKeypoints(poses[0].keypoints);
-    else ctx.clearRect(0,0,overlay.width,overlay.height);
-
-    frameCount++;
-    const now = performance.now();
-    if(now-lastTime>=1000){ fpsEl.innerText = frameCount; frameCount=0; lastTime=now; }
-
-    if(Math.random()<0.04 && captioner){
-      outputText.innerText = 'Captioning...';
-      const tmp = document.createElement('canvas');
-      tmp.width=video.videoWidth; tmp.height=video.videoHeight;
-      tmp.getContext('2d').drawImage(video,0,0,tmp.width,tmp.height);
-      try{
-        const caption = await captioner(tmp);
-        if(caption && caption.length){
-          lastCaption = caption[0].generated_text||caption[0].text||String(caption);
-          outputText.innerText = lastCaption;
-          tmp.toBlob(b=>{lastFrameBlob=b;},'image/jpeg',0.9);
-        }
-      }catch(e){ outputText.innerText='Caption error'; }
-    }
-    rafId = requestAnimationFrame(processFrame);
-  }
-
-  function runLoop(){ if(!rafId) rafId = requestAnimationFrame(processFrame); }
-
-  snap.onclick = () => {
-    if(!lastFrameBlob) return alert('No frame yet');
-    const url = URL.createObjectURL(lastFrameBlob);
-    const img = document.createElement('img');
-    img.src=url; img.width=160; img.style.borderRadius='8px';
-    const caption = document.createElement('div');
-    caption.innerText=(lastCaption||'—').slice(0,120);
-    caption.style.fontSize='12px'; caption.style.color='#cfe7ff';
-    const wrap=document.createElement('div');
-    wrap.style.display='flex'; wrap.style.flexDirection='column'; wrap.appendChild(img); wrap.appendChild(caption);
-    highlights.prepend(wrap);
-  };
-
-  askBtn.onclick = async () => {
-    const q = vqaInput.value.trim(); if(!q) return;
-    vqaAnswer.innerText='Thinking...';
-    const snapc=document.createElement('canvas');
-    snapc.width=video.videoWidth; snapc.height=video.videoHeight;
-    snapc.getContext('2d').drawImage(video,0,0,snapc.width,snapc.height);
-    try{
-      const result = await captioner(snapc,{prompt:q});
-      vqaAnswer.innerText = result[0]?.generated_text||result[0]?.text||'No answer';
-    }catch(e){ vqaAnswer.innerText='VQA not supported'; }
-  };
-
-  document.getElementById('clearBtn').onclick=()=>{ vqaInput.value=''; vqaAnswer.innerText='—'; };
-
-  downloadSummary.onclick=()=>{
-    const items=[]; for(const child of highlights.children){ const img=child.querySelector('img'); const cap=child.querySelector('div').innerText; items.push({caption:cap,src:img.src}); }
-    const blob=new Blob([JSON.stringify({captions:items,lastCaption},null,2)],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='summary.json'; a.click();
-  };
-
-  video.addEventListener('loadedmetadata',()=>{ overlay.width=video.videoWidth; overlay.height=video.videoHeight; });
+    loadModel();
   </script>
 </body>
 </html>
+
 
