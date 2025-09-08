@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StageSense — Smart Dance Assistant</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#f59e0b; --muted:#9aa4b2;
+      --glass: rgba(255,255,255,0.04);
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    body{margin:0;background:linear-gradient(180deg,#071023 0%, #07182b 100%);color:#e6eef6}
+    .wrap{max-width:1100px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    h1{margin:0;font-size:20px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:var(--accent);border:none;color:#06111a;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .card{background:var(--card);border-radius:14px;padding:14px;margin-top:12px;box-shadow:0 6px 30px rgba(4,6,15,0.6)}
+    #videoPanel{display:grid;grid-template-columns:640px 1fr;gap:12px;align-items:start}
+    video, canvas, img{width:100%;border-radius:10px}
+    #outputText{white-space:pre-wrap;font-family:inherit;color:#eaf3ff}
+    .small{font-size:13px;color:var(--muted)}
+    .badge{display:inline-block;padding:6px 8px;border-radius:8px;background:var(--glass);margin-right:6px}
+    footer{margin-top:18px;font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>StageSense — Smart Dance Assistant (runs in browser)</h1>
+        <div class="small">Pose detection + image captioning & VQA — no server. Host on GitHub Pages.</div>
+      </div>
+      <div style="margin-left:auto" class="controls">
+        <button id="startCam">Start Camera</button>
+        <button id="stopCam" class="ghost" disabled>Stop</button>
+        <button id="snap" class="ghost" disabled>Save Highlight</button>
+        <button id="downloadSummary" class="ghost">Download Summary</button>
+      </div>
+    </header>
+
+    <div class="card" id="mainCard">
+      <div id="videoPanel">
+        <div>
+          <video id="video" playsinline autoplay muted></video>
+          <canvas id="overlay" width="640" height="480" style="position:relative; margin-top:8px;"></canvas>
+        </div>
+
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div class="badge">Model: <span id="modelName">MoveNet</span></div>
+              <div class="badge">Caption model: <span id="captionModel">BLIP (browser)</span></div>
+            </div>
+            <div class="small">FPS: <span id="fps">0</span></div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="small">Live caption (best per-frame):</div>
+            <div id="outputText" style="min-height:80px">—</div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="small">Ask a question about the current frame (VQA):</div>
+            <input id="vqaInput" placeholder="e.g. What is the dancer doing?" style="width:100%;padding:10px;margin-top:8px;border-radius:8px;border:none;background:#031020;color:#dff" />
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="askBtn" class="ghost">Ask</button>
+              <button id="clearBtn" class="ghost">Clear</button>
+            </div>
+            <div style="margin-top:8px;color:var(--muted)" id="vqaAnswer">—</div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="small">Highlights (saved frames):</div>
+            <div id="highlights" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Tips: If models are slow, switch to a smaller browser or try Chrome/Edge with WebGL enabled. Models load from CDN; first visit downloads model weights to the browser cache.
+    </footer>
+  </div>
+
+  <!-- LOAD LIBRARIES FROM CDN -->
+  <!-- TensorFlow.js & pose-detection (MoveNet / PoseNet) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+  <!-- Transformers.js (xenova/Hugging Face builds) -->
+  <script type="module">
+  import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js';
+
+  // Quick helpers & DOM
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+  const startCam = document.getElementById('startCam');
+  const stopCam = document.getElementById('stopCam');
+  const snap = document.getElementById('snap');
+  const outputText = document.getElementById('outputText');
+  const vqaInput = document.getElementById('vqaInput');
+  const askBtn = document.getElementById('askBtn');
+  const vqaAnswer = document.getElementById('vqaAnswer');
+  const fpsEl = document.getElementById('fps');
+  const highlights = document.getElementById('highlights');
+  const downloadSummary = document.getElementById('downloadSummary');
+
+  let detector = null;
+  let captioner = null;
+  let rafId = null;
+  let stream = null;
+  let lastCaption = '';
+  let lastFrameBlob = null;
+  let lastTime = performance.now();
+  let frameCount = 0;
+
+  // Initialize caption pipeline (BLIP / VQA)
+  async function initCaptioner(){
+    outputText.innerText = 'Loading caption model (this may take a while on first run)...';
+    try{
+      // You can change model to a smaller, quantized model if available.
+      captioner = await pipeline('image-to-text', 'Salesforce/blip-image-captioning-base');
+      outputText.innerText = 'Caption model loaded. Ready.';
+    }catch(e){
+      console.warn('Captioner failed', e);
+      outputText.innerText = 'Caption model failed to load in-browser. Try smaller model or check console.';
+    }
+  }
+
+  // Initialize pose detector
+  async function initPose(){
+    // prefer MoveNet; fallback to PoseNet if not available on device
+    const posedetection = window.poseDetection;
+    const detectorConfig = {modelType: posedetection.movenet.modelType.SINGLEPOSE_LIGHTNING};
+    try{
+      detector = await posedetection.createDetector(posedetection.SupportedModels.MoveNet, detectorConfig);
+      document.getElementById('modelName').innerText = 'MoveNet';
+    }catch(e){
+      console.warn('MoveNet failed, falling back to PoseNet', e);
+      detector = await posedetection.createDetector(posedetection.SupportedModels.PoseNet);
+      document.getElementById('modelName').innerText = 'PoseNet';
+    }
+  }
+
+  // Start camera -> stream -> render loop
+  startCam.onclick = async () => {
+    startCam.disabled = true;
+    outputText.innerText = 'Requesting camera...';
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}, audio:false});
+      video.srcObject = stream;
+      await video.play();
+      stopCam.disabled = false;
+      snap.disabled = false;
+      // init models
+      await Promise.all([initPose(), initCaptioner()]);
+      runLoop();
+    }catch(err){
+      alert('Camera access denied or not available: '+err.message);
+      startCam.disabled = false;
+    }
+  };
+
+  stopCam.onclick = () => {
+    if(stream){
+      stream.getTracks().forEach(t=>t.stop());
+      stream = null;
+    }
+    cancelAnimationFrame(rafId);
+    rafId = null;
+    startCam.disabled = false;
+    stopCam.disabled = true;
+    snap.disabled = true;
+    outputText.innerText = 'Stopped';
+  };
+
+  // Small utility: draw skeleton
+  function drawKeypoints(keypoints){
+    ctx.clearRect(0,0,overlay.width,overlay.height);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#00ffcc';
+    ctx.fillStyle = '#00ffcc';
+    for(const kp of keypoints){
+      const {x,y,score} = kp;
+      if(score>0.35){
+        ctx.beginPath();
+        ctx.arc(x,y,4,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+    // simple connections (limb pairs)
+    const pairs = [[5,7],[7,9],[6,8],[8,10],[5,6],[11,13],[13,15],[12,14],[14,16],[11,12]];
+    ctx.strokeStyle='#f59e0b';
+    for(const [a,b] of pairs){
+      const p1 = keypoints[a];
+      const p2 = keypoints[b];
+      if(p1 && p2 && p1.score>0.35 && p2.score>0.35){
+        ctx.beginPath();
+        ctx.moveTo(p1.x,p1.y);
+        ctx.lineTo(p2.x,p2.y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Per-frame processing
+  async function processFrame(){
+    const start = performance.now();
+    // draw video into an offscreen canvas
+    const tmp = document.createElement('canvas');
+    tmp.width = video.videoWidth;
+    tmp.height = video.videoHeight;
+    const tctx = tmp.getContext('2d');
+    tctx.drawImage(video,0,0,tmp.width,tmp.height);
+
+    // Pose detection
+    let poses = [];
+    try{
+      poses = await detector.estimatePoses(video);
+    }catch(e){
+      console.warn('pose error', e);
+    }
+    if(poses && poses[0]){
+      drawKeypoints(poses[0].keypoints);
+    }else{
+      ctx.clearRect(0,0,overlay.width,overlay.height);
+    }
+
+    frameCount++;
+    const now = performance.now();
+    if(now - lastTime >= 1000){
+      fpsEl.innerText = frameCount;
+      frameCount = 0;
+      lastTime = now;
+    }
+
+    // Captioning: run at a low rate (every N frames)
+    if(Math.random() < 0.04 && captioner){ // ~1 caption every 25 frames (tune)
+      outputText.innerText = 'Generating caption...';
+      try{
+        // we pass the HTMLImageElement or canvas - here use tmp
+        const caption = await captioner(tmp);
+        if(caption && caption.length){
+          lastCaption = caption[0].generated_text || caption[0].text || String(caption);
+          outputText.innerText = lastCaption;
+          // save last frame as blob for highlight if interesting
+          tmp.toBlob(b=>{
+            lastFrameBlob = b;
+          }, 'image/jpeg', 0.9);
+        }else{
+          outputText.innerText = '—';
+        }
+      }catch(e){
+        console.warn('caption fail', e);
+        outputText.innerText = 'Captioning error (see console)';
+      }
+    }
+
+    // schedule next
+    rafId = requestAnimationFrame(processFrame);
+  }
+
+  function runLoop(){ if(!rafId) rafId = requestAnimationFrame(processFrame); }
+
+  // Save highlight
+  snap.onclick = async () => {
+    if(!lastFrameBlob) return alert('No recent frame classified yet — wait a second');
+    const url = URL.createObjectURL(lastFrameBlob);
+    const img = document.createElement('img');
+    img.src = url;
+    img.width = 160;
+    img.style.borderRadius = '8px';
+    const caption = document.createElement('div');
+    caption.innerText = (lastCaption||'—').slice(0,120);
+    caption.style.fontSize = '12px'; caption.style.color = '#cfe7ff';
+    const wrap = document.createElement('div');
+    wrap.style.display='flex'; wrap.style.flexDirection='column'; wrap.style.alignItems='flex-start';
+    wrap.appendChild(img); wrap.appendChild(caption);
+    highlights.prepend(wrap);
+  };
+
+  // VQA: use the same image-to-text pipeline but with question prompt (BLIP supports VQA if model supports it)
+  askBtn.onclick = async () => {
+    const q = vqaInput.value.trim();
+    if(!q) return;
+    outputText.innerText = 'Running VQA...';
+    // snapshot current video frame
+    const snapc = document.createElement('canvas');
+    snapc.width = video.videoWidth; snapc.height = video.videoHeight;
+    const sctx = snapc.getContext('2d');
+    sctx.drawImage(video,0,0,snapc.width,snapc.height);
+    try{
+      // Some BLIP VQA adapters expect a combined prompt; as a fallback we append the question as prompt text
+      const result = await captioner(snapc, {prompt: q});
+      const answer = result && result[0] && (result[0].generated_text || result[0].text) ? (result[0].generated_text || result[0].text) : 'No answer';
+      vqaAnswer.innerText = answer;
+    }catch(e){
+      console.warn('VQA error', e);
+      vqaAnswer.innerText = 'VQA not supported by this model in-browser or failed to run.';
+    }
+  };
+
+  document.getElementById('clearBtn').onclick = () => {
+    vqaInput.value = '';
+    vqaAnswer.innerText = '—';
+  };
+
+  // Download summary (simple zip-free summary: collate captions & thumbnails into JSON + images)
+  downloadSummary.onclick = () => {
+    const items = [];
+    for(const child of highlights.children){
+      const img = child.querySelector('img');
+      const caption = child.querySelector('div').innerText;
+      items.push({caption, src: img.src});
+    }
+    const blob = new Blob([JSON.stringify({captions: items, lastCaption: lastCaption||''}, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'stagesense-summary.json';
+    a.click();
+  };
+
+  // warm up: set overlay to size
+  video.addEventListener('loadedmetadata', ()=> {
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+  });
+
+  // Optional: handle page hidden -> stop
+  document.addEventListener('visibilitychange', ()=> {
+    if(document.hidden && stream) stopCam.onclick();
+  });
+
+  </script>
+</body>
+</html>
