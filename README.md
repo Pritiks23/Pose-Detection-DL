@@ -1,6 +1,7 @@
 # # AI Image Analyzer
 
 A client-side deep learning web application that analyzes images and displays top object predictions using MobileNet. Fully runs in the browser and can be hosted on GitHub Pages.
+![Uploading Screen Shot 2025-09-07 at 8.28.33 PM.png…]()
 
 ---
 
@@ -16,7 +17,7 @@ A client-side deep learning web application that analyzes images and displays to
 
 ## Demo
 
-
+https://pritiks23.github.io/Pose-Detection-DL/
 
 ## Technologies Used
 
